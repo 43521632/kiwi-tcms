@@ -41,7 +41,7 @@ services:
         volumes:
             - uploads:/Kiwi/uploads:Z
             # ➕ [ДОБАВЛЕНО] Монтирование local_settings.py для кастомизации (раскомментируйте, если файл создан)
-            # - ./local_settings.py:/venv/lib64/python3.11/site-packages/tcms/settings/local_settings.py:ro
+            - ./local_settings.py:/venv/lib64/python3.11/site-packages/tcms/settings/local_settings.py:ro
             # ➕ [ДОБАВЛЕНО] Опционально: монтирование папки с доп. настройками
             # - ./tcms_settings_dir:/venv/lib64/python3.11/site-packages/tcms_settings_dir:ro
         environment:
