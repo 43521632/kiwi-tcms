@@ -1,0 +1,535 @@
+# 📦 Подробная инструкция по установке Kiwi TCMS Community Edition на Ubuntu (локально через Docker)
+
+> ⚠️ **Важно**: Инструкция предназначена для **локальной разработки/тестирования**. Для продакшена рекомендуется дополнительно настроить домен, резервное копирование и мониторинг.
+
+---
+
+## 🔧 1. Подготовка системы (Пререквизиты)
+
+### 1.1. Обновите систему
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+### 1.2. Установите Docker
+```bash
+# Установка необходимых пакетов
+sudo apt install -y ca-certificates curl gnupg lsb-release
+
+# Добавьте GPG-ключ Docker
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+  sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+sudo chmod a+r /etc/apt/keyrings/docker.gpg
+
+# Добавьте репозиторий
+echo \
+  "deb [arch=$(dpkg --print-architecture) \
+  signed-by=/etc/apt/keyrings/docker.gpg] \
+  https://download.docker.com/linux/ubuntu \
+  $(lsb_release -cs) stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Установите Docker Engine
+sudo apt update
+sudo apt install -y docker-ce docker-ce-cli containerd.io \
+  docker-buildx-plugin docker-compose-plugin
+
+# Добавьте пользователя в группу docker (чтобы не использовать sudo)
+sudo usermod -aG docker $USER
+# ⚠️ После этого нужно выйти и зайти снова, или выполнить:
+newgrp docker
+```
+
+### 1.3. Проверьте установку
+```bash
+docker --version
+docker compose version
+```
+
+---
+
+## 📥 2. Скачивание конфигурации Kiwi TCMS
+
+### 2.1. Создайте рабочую директорию
+```bash
+mkdir -p ~/kiwi-tcms && cd ~/kiwi-tcms
+```
+
+### 2.2. Скачайте `docker-compose.yml` для Community Edition
+```bash
+curl -O https://raw.githubusercontent.com/kiwitcms/kiwi/master/docker-compose.yml
+```
+
+### 2.3. (Рекомендуется) Инициализируйте локальный Git-репозиторий
+```bash
+git init
+git add docker-compose.yml
+git commit -m "Initial Kiwi TCMS setup"
+```
+
+> 💡 **Совет**: Храните свою копию `docker-compose.yml` под версионным контролем — это упростит отслеживание изменений и откат при проблемах.
+
+---
+
+## ⚙️ 3. Настройка (опционально, но рекомендуется)
+
+### 3.1. Проверьте переменные окружения в `docker-compose.yml`
+Откройте файл:
+```bash
+nano docker-compose.yml
+```
+
+Убедитесь, что заданы следующие параметры (по умолчанию они уже есть):
+```yaml
+environment:
+  KIWI_DB_PASSWORD: kiwi          # Пароль к БД (измените на надёжный!)
+  KIWI_SECRET_KEY: 'change-me'    # Замените на случайную строку!
+  KIWI_TIME_ZONE: Europe/Moscow   # Укажите ваш часовой пояс
+```
+
+> 🔐 **Безопасность**: 
+> - `KIWI_SECRET_KEY` должен быть уникальной случайной строкой (сгенерируйте через `python -c 'import secrets; print(secrets.token_urlsafe(50))'`)
+> - Не используйте дефолтный пароль `kiwi` в продакшене
+
+ТУТ ПЕРЕКЛЮЧАЕМСЯ НА ВТОРОЙ ЗАПРОС И ПОСЛЕ СНОВА СЮДА ВОЗВРАЩАЕМСЯ!
+
+### 3.2. (Опционально) Настройка кастомных настроек
+Создайте файл `local_settings.py` для переопределения настроек:
+```bash
+nano local_settings.py
+```
+
+Пример содержимого:
+```python
+# Отключение требования сложного пароля для локальной разработки
+AUTH_PASSWORD_VALIDATORS = []
+
+# Разрешить регистрацию новым пользователям
+ACCOUNT_ALLOW_REGISTRATION = True
+```
+
+Добавьте монтирование в `docker-compose.yml`:
+```yaml
+volumes:
+  - uploads:/Kiwi/uploads
+  - ./local_settings.py:/venv/lib64/python3.11/site-packages/tcms/settings/local_settings.py
+```
+
+---
+
+## 🚀 4. Запуск Kiwi TCMS
+
+### 4.1. Запустите контейнеры в фоновом режиме
+```bash
+cd ~/kiwi-tcms
+docker compose up -d
+```
+
+### 4.2. Проверьте статус контейнеров
+```bash
+docker compose ps
+```
+Ожидайте два контейнера:
+- `kiwi_web` — веб-приложение
+- `kiwi_db` — база данных MariaDB
+
+### 4.3. Дождитесь полной инициализации
+Первые запуски могут занять 1-3 минуты. Проверьте логи:
+```bash
+docker compose logs -f web
+```
+Когда увидите `Apache/2.4.x ... running` — система готова.
+
+---
+
+## 🛠️ 5. Первоначальная настройка (Initial Setup)
+
+### 5.1. Выполните интерактивную инициализацию
+```bash
+docker exec -it kiwi_web /Kiwi/manage.py initial_setup
+```
+
+Скрипт выполнит:
+- ✅ Создание схемы базы данных
+- ✅ Применение миграций
+- ✅ Создание суперпользователя (введите email и пароль)
+- ✅ Генерацию конфигурационных файлов
+
+> 💡 При вводе пароля символы не отображаются — это нормально.
+
+### 5.2. Доступ к веб-интерфейсу
+Откройте в браузере:
+```
+https://localhost
+```
+
+> ⚠️ Браузер предупредит о самоподписанном сертификате — это ожидаемо для локальной установки. Нажмите "Принять риск" или "Дополнительно → Перейти на сайт".
+
+### 5.3. (Опционально) Установите корневой сертификат
+Чтобы браузер не показывал предупреждения:
+```bash
+# Скачайте CA-сертификат
+curl -k https://localhost/static/ca.crt -o kiwi-ca.crt
+
+# Для Ubuntu/Debian:
+sudo cp kiwi-ca.crt /usr/local/share/ca-certificates/kiwi-tcms.crt
+sudo update-ca-certificates
+```
+
+---
+
+## 🔒 6. Настройка SSL (для продакшена)
+
+### Вариант А: Использовать свой сертификат
+1. Поместите ваши файлы:
+   - `localhost.crt` — публичный сертификат
+   - `localhost.key` — приватный ключ
+2. В директорию `~/kiwi-tcms/ssl/`
+3. Добавьте в `docker-compose.yml`:
+```yaml
+volumes:
+  - ./ssl:/Kiwi/ssl:ro
+```
+
+### Вариант Б: Обратный прокси (Nginx) с терминированием SSL
+Пример конфигурации Nginx:
+```nginx
+server {
+    listen 80;
+    server_name kiwi.yourdomain.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name kiwi.yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+
+    location / {
+        proxy_pass https://localhost:8443;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # Для самоподписанного сертификата внутри контейнера:
+        proxy_ssl_verify off;
+    }
+}
+```
+
+---
+
+## 🔄 7. Обновление Kiwi TCMS
+
+```bash
+cd ~/kiwi-tcms
+
+# 1. Остановите контейнеры
+docker compose down
+
+# 2. Скачайте новые образы
+docker compose pull
+
+# 3. Запустите обновлённые контейнеры
+docker compose up -d
+
+# 4. Выполните миграции БД
+docker exec -it kiwi_web /Kiwi/manage.py upgrade
+
+# 5. Убедитесь, что все миграции применены
+docker exec -it kiwi_web /Kiwi/manage.py showmigrations
+```
+
+> ✅ Все данные сохранятся, так как они хранятся в Docker-томах `kiwi_db_data` и `kiwi_uploads`.
+
+> 🗄️ **Важно**: Перед обновлением всегда делайте бэкап:
+```bash
+# Бэкап базы данных
+docker exec kiwi_db sh -c 'exec mariadb-dump --all-databases -ukiwi -pkiwi' > kiwi-backup-$(date +%F).sql
+
+# Бэкап загруженных файлов
+docker run --rm -v kiwi_uploads:/uploads -v $(pwd):/backup ubuntu \
+  tar czf /backup/uploads-backup.tar.gz -C /uploads .
+```
+
+---
+
+## 🐛 8. Устранение неполадок
+
+| Проблема | Решение |
+|----------|---------|
+| **Контейнер не запускается** | Проверьте логи: `docker compose logs kiwi_web` |
+| **Ошибка 500 без деталей** | Временно включите `DEBUG = True` в `local_settings.py` и перезапустите |
+| **Не применяется `local_settings.py`** | Убедитесь, что путь в `volumes` точный и файл имеет права на чтение |
+| **Port 443 уже занят** | Измените порты в `docker-compose.yml`: `ports: - "127.0.0.1:8443:8443"` |
+| **Недостаточно прав на монтирование файлов** | Обновите Docker или используйте монтирование директорий вместо файлов |
+
+### Просмотр логов в реальном времени
+```bash
+# Веб-контейнер
+docker compose logs -f kiwi_web
+
+# База данных
+docker compose logs -f kiwi_db
+
+# Последние 100 строк
+docker compose logs --tail 100 kiwi_web
+```
+
+### Доступ к консоли Django внутри контейнера
+```bash
+docker exec -it kiwi_web /Kiwi/manage.py shell
+```
+
+---
+
+Просто остановка контейнеров и их запуск
+# ⏸️ Остановить контейнеры (данные и настройки остаются на месте)
+docker compose stop
+
+# ▶️ Запустить их обратно (продолжение работы с того же места)
+docker compose start
+
+
+## 🧹 9. Очистка и удаление (если нужно начать заново)
+
+```bash
+cd ~/kiwi-tcms
+
+# Остановить и удалить контейнеры + тома (⚠️ все данные будут удалены!)
+docker compose down -v
+
+# Удалить образы (опционально)
+docker rmi kiwitcms/kiwi:latest mariadb:10.6
+```
+
+> ⚠️ Флаг `-v` удаляет тома с данными! Используйте только если уверены.
+
+---
+
+## 📚 Полезные ссылки
+
+- 🌐 Официальная документация: https://kiwitcms.readthedocs.io
+- 🐳 Образы Docker: https://kiwitcms.org/containers/
+- 💬 Сообщество и поддержка: https://github.com/kiwitcms/kiwi/discussions
+- 🐛 Сообщить об ошибке: https://github.com/kiwitcms/kiwi/issues
+
+---
+
+## ✅ Чек-лист успешной установки
+
+- [ ] Docker и docker-compose установлены и работают
+- [ ] `docker-compose.yml` скачан и проверен
+- [ ] Контейнеры запущены: `docker compose ps` показывает `Up`
+- [ ] `initial_setup` выполнен без ошибок
+- [ ] Веб-интерфейс доступен по `https://localhost`
+- [ ] Создан суперпользователь и выполнен вход
+- [ ] (Опционально) Настроен бэкап и мониторинг
+
+---
+
+> 🎉 **Поздравляю!** Вы успешно развернули Kiwi TCMS Community Edition локально.  
+> Теперь вы можете создавать тест-планы, тест-кейсы, управлять тестовыми прогонами и интегрировать систему с CI/CD.
+
+Если возникнут вопросы — смело обращайтесь к логам, документации или сообществу на GitHub. Удачи в тестировании! 🧪✨
+
+
+
+
+-------------------
+Второй запрос
+
+Вот ваш файл `docker-compose.yml` с применёнными изменениями и улучшениями. 
+
+### 🟢 Легенда пометок:
+| Пометка | Значение |
+|---------|----------|
+| `# ➕ [ДОБАВЛЕНО]` | Новая строка или блок, которого не было в оригинале |
+| `# ✏️ [ИЗМЕНЕНО]` | Значение было изменено (старое значение показано в комментарии) |
+| `# ⚠️ [ВНИМАНИЕ]` | Важное пояснение или предупреждение |
+| `# ➖ [ОПЦИОНАЛЬНО]` | Блок можно удалить, если не нужен |
+
+---
+
+### 📄 Файл: `docker-compose.yml` (модифицированный)
+
+```yaml
+# ✏️ [ИЗМЕНЕНО] Версия схемы (было: '2', стало: '3.8' для поддержки современных функций)
+version: '3.8'
+
+services:
+    db:
+        container_name: kiwi_db
+        image: mariadb:10.6  # ➕ [ИЗМЕНЕНО] Зафиксирована версия образа (было: mariadb:latest) для стабильности
+        command:
+            --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+        volumes:
+            - db_data:/var/lib/mysql
+        restart: always
+        environment:
+            # checkov:skip=CKV_SECRET_6:Base64 High Entropy String
+            # ✏️ [ИЗМЕНЕНО] Замените на надёжный пароль! (было: kiwi-1s-aw3s0m3)
+            MYSQL_ROOT_PASSWORD: ${KIWI_DB_ROOT_PASSWORD:-ChangeMe_R00tP@ss!}
+            MYSQL_DATABASE: kiwi
+            MYSQL_USER: kiwi
+            # ✏️ [ИЗМЕНЕНО] Замените на надёжный пароль! (было: kiwi)
+            MYSQL_PASSWORD: ${KIWI_DB_PASSWORD:-ChangeMe_Us3rP@ss!}
+        # ➕ [ДОБАВЛЕНО] Healthcheck для корректного порядка запуска
+        healthcheck:
+            test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+            start_period: 30s
+            interval: 10s
+            timeout: 5s
+            retries: 5
+
+    web:
+        container_name: kiwi_web
+        depends_on:
+            db:
+                condition: service_healthy  # ➕ [ИЗМЕНЕНО] Ждём готовности БД, а не просто старта контейнера
+        restart: always
+        image: pub.kiwitcms.eu/kiwitcms/kiwi:latest
+        ports:
+            # ➕ [ИЗМЕНЕНО] Привязка к localhost для локальной разработки (было: 80:8080)
+            # Уберите "127.0.0.1:", если нужен доступ с других устройств в сети
+            - 127.0.0.1:80:8080
+            - 127.0.0.1:443:8443
+        volumes:
+            - uploads:/Kiwi/uploads:Z
+            # ➕ [ДОБАВЛЕНО] Монтирование local_settings.py для кастомизации (раскомментируйте, если файл создан)
+            # - ./local_settings.py:/venv/lib64/python3.11/site-packages/tcms/settings/local_settings.py:ro
+            # ➕ [ДОБАВЛЕНО] Опционально: монтирование папки с доп. настройками
+            # - ./tcms_settings_dir:/venv/lib64/python3.11/site-packages/tcms_settings_dir:ro
+        environment:
+            KIWI_DB_HOST: db
+            KIWI_DB_PORT: 3306
+            KIWI_DB_NAME: kiwi
+            KIWI_DB_USER: kiwi
+            # ✏️ [ИЗМЕНЕНО] Должно совпадать с MYSQL_PASSWORD выше
+            KIWI_DB_PASSWORD: ${KIWI_DB_PASSWORD:-ChangeMe_Us3rP@ss!}
+            # ➕ [ДОБАВЛЕНО] КРИТИЧЕСКИ ВАЖНО: Секретный ключ для Django (сгенерируйте свой!)
+            # Команда для генерации: python3 -c 'import secrets; print(secrets.token_urlsafe(50))'
+            KIWI_SECRET_KEY: ${KIWI_SECRET_KEY:-CHANGE_THIS_TO_A_RANDOM_SECURE_STRING_MIN_50_CHARS}
+            # ➕ [ДОБАВЛЕНО] Часовой пояс (замените на ваш)
+            KIWI_TIME_ZONE: Europe/Moscow
+            # ➕ [ДОБАВЛЕНО] Опционально: настройки почты (раскомментируйте и заполните при необходимости)
+            # KIWI_EMAIL_HOST: smtp.example.com
+            # KIWI_EMAIL_PORT: 587
+            # KIWI_EMAIL_USER: noreply@example.com
+            # KIWI_EMAIL_PASSWORD: ${EMAIL_PASSWORD:-}
+            # KIWI_EMAIL_USE_TLS: "true"
+        cap_drop:
+          - ALL
+        # ➕ [ДОБАВЛЕНО] Минимальные capabilities для работы HTTPS
+        cap_add:
+          - NET_BIND_SERVICE
+        # ➕ [ДОБАВЛЕНО] Healthcheck для веб-контейнера
+        healthcheck:
+            test: ["CMD", "curl", "-fk", "https://localhost:8443/"]
+            start_period: 40s
+            interval: 30s
+            timeout: 10s
+            retries: 3
+        # ➕ [ДОБАВЛЕНО] Настройка логирования (опционально, для удобства отладки)
+        logging:
+            driver: "json-file"
+            options:
+                max-size: "10m"
+                max-file: "3"
+
+    # ➖ [ОПЦИОНАЛЬНО] Этот сервис только для тестов. Для продакшена/локальной работы — закомментируйте или удалите.
+    # proxy:
+    #     container_name: reverse_proxy
+    #     image: nginx
+    #     volumes:
+    #         - ./tests/nginx-proxy/nginx.conf:/etc/nginx/nginx.conf:Z
+    #         - ./tests/nginx-proxy/localhost.key:/etc/nginx/localhost.key:Z
+    #         - ./tests/nginx-proxy/localhost.crt:/etc/nginx/localhost.crt:Z
+    #     ports:
+    #         - 4343:8443
+    #     depends_on:
+    #         - web
+
+volumes:
+    db_data:
+    uploads:
+```
+
+---
+
+### 🔧 Файл: `.env` (создайте рядом с docker-compose.yml)
+
+```bash
+# ➕ [НОВОЕ] Файл .env для хранения чувствительных переменных (НЕ коммитьте в Git!)
+
+# Пароли БД
+KIWI_DB_ROOT_PASSWORD=ChangeMe_R00tP@ss!
+KIWI_DB_PASSWORD=ChangeMe_Us3rP@ss!
+
+# Секретный ключ Django (сгенерируйте уникальный!)
+# Команда: python3 -c 'import secrets; print(secrets.token_urlsafe(50))'
+KIWI_SECRET_KEY=your_generated_secret_key_here_min_50_characters_long
+
+# Часовой пояс
+KIWI_TIME_ZONE=Europe/Moscow
+
+# Опционально: почта
+# EMAIL_PASSWORD=your_email_password
+```
+
+> ⚠️ **Важно**: Добавьте `.env` в `.gitignore`, чтобы не засветить пароли в репозитории!
+
+---
+
+### 📋 Сводная таблица изменений
+
+| Секция | Что изменено | Почему это важно |
+|--------|-------------|-----------------|
+| `version` | `'2'` → `'3.8'` | Поддержка `healthcheck`, `depends_on.condition` и других современных функций |
+| `db.image` | `mariadb:latest` → `mariadb:10.6` | Фиксация версии предотвращает неожиданные поломки при обновлении образа |
+| `db.environment` | Пароли через `${VAR:-default}` | Безопасность: пароли вынесены в `.env`, есть значения по умолчанию для первого запуска |
+| `db.healthcheck` | ➕ Добавлен | Веб-контейнер не стартует, пока БД не будет готова к приёму соединений |
+| `web.ports` | `80:8080` → `127.0.0.1:80:8080` | Безопасность: сервис доступен только с локальной машины (уберите префикс для доступа из сети) |
+| `web.environment` | ➕ Добавлен `KIWI_SECRET_KEY` | **Критично**: без этого ключа сессии и токены не будут работать корректно |
+| `web.environment` | ➕ Добавлен `KIWI_TIME_ZONE` | Корректное отображение времени в интерфейсе и логах |
+| `web.volumes` | ➕ Закомментированные примеры для `local_settings.py` | Готовый шаблон для кастомизации настроек без пересборки образа |
+| `web.cap_add` | ➕ Добавлен `NET_BIND_SERVICE` | Разрешает контейнеру биндиться на привилегированные порты (80/443) после `cap_drop: ALL` |
+| `web.healthcheck` | ➕ Добавлен | Позволяет оркестратору понимать, что приложение действительно готово обрабатывать запросы |
+| `web.logging` | ➕ Добавлен | Предотвращает бесконечный рост логов (ротация: 3 файла по 10МБ) |
+| `proxy` | ➕ Закомментирован по умолчанию | Этот сервис только для внутренних тестов разработчиков Kiwi, в реальной установке не нужен |
+| `.env` | ➕ Новый файл | Лучшая практика: секреты отдельно от конфигурации, удобно для разных окружений |
+
+---
+
+### 🚀 Как применить изменения
+
+1. **Сохраните** модифицированный `docker-compose.yml`
+2. **Создайте** файл `.env` в той же директории и заполните переменные
+3. **Перезапустите** контейнеры:
+   ```bash
+   docker compose down
+   docker compose up -d
+   ```
+4. **Проверьте** статус:
+   ```bash
+   docker compose ps
+   # Оба контейнера должны иметь статус "healthy"
+   ```
+
+### 🔐 Генерация безопасного `KIWI_SECRET_KEY`
+
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(50))'
+# Пример вывода: VZx8K3mN9pLqR2wYtF5jH7cU4eB1aD6sG0iO3vX8nM2kP5rT9wQ
+```
+
+Скопируйте вывод и вставьте в `.env` вместо `your_generated_secret_key_here...`.
+
+---
+
+> ✅ **Готово!** Ваш `docker-compose.yml` теперь соответствует best practices: безопасен, стабилен и готов к локальной разработке.  
+> Не забудьте раскомментировать строку с `local_settings.py` в `volumes`, если создадите этот файл для кастомизации настроек! 🎯
