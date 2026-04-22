@@ -571,3 +571,5 @@ docker exec -it -w /Kiwi kiwi_web python manage.py createsuperuser
 - Предупреждения `Found another file...` при `collectstatic` — норма, их можно игнорировать
 - Если контейнер не запускается — проверьте, не занят ли порт 80
 - Для чистой переустановки: `docker-compose down && docker-compose up -d`
+
+Моя последняя версия 15.4
